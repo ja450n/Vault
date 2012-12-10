@@ -74,7 +74,7 @@ namespace Vault
         }
         public override Version Version
         {
-            get { return new Version("0.1"); }
+            get { return new Version("0.11"); }
         }
 
         //-------------------- Static ----------------------------------------------------
@@ -134,14 +134,17 @@ namespace Vault
         public static Dictionary<int, int> GetPlayerKillCounts(string Name)
         {
             Dictionary<int, int> returnDict = new Dictionary<int, int>();
-            try
+            if (CurrentInstance.config.LogKillCounts)
             {
-                var reader = CurrentInstance.Database.QueryReader("SELECT killData FROM vault_players WHERE username = @0 AND worldID = @1", Name, Main.worldID);
-                if (reader.Read())
-                    returnDict = Newtonsoft.Json.JsonConvert.DeserializeObject<Dictionary<int, int>>(reader.Get<string>("killData"));
-                reader.Dispose();
+                try
+                {
+                    var reader = CurrentInstance.Database.QueryReader("SELECT killData FROM vault_players WHERE username = @0 AND worldID = @1", Name, Main.worldID);
+                    if (reader.Read())
+                        returnDict = Newtonsoft.Json.JsonConvert.DeserializeObject<Dictionary<int, int>>(reader.Get<string>("killData"));
+                    reader.Dispose();
+                }
+                catch (Exception ex) { Log.ConsoleError(ex.ToString()); }
             }
-            catch (Exception ex) { Log.ConsoleError(ex.ToString()); }
             return returnDict;
         }
 
@@ -205,6 +208,42 @@ namespace Vault
                 new SqlColumn("killData", MySqlDbType.Text)                
                 ));
 
+
+            Commands.ChatCommands.Add(new Command("vault.pay", PayCommand, "pay"));
+            Commands.ChatCommands.Add(new Command("vault.balance", BalanceCommand, "balance"));
+
+        }
+        public void PayCommand(CommandArgs args)
+        {
+            int amount;
+            if (args.Parameters.Count == 2 && int.TryParse(args.Parameters[1], out amount) && amount > 0)
+            {
+                var player = PlayerList[args.Player.Index];
+                if (player != null)
+                {
+                    var targetPlayer = GetPlayerByName(args.Parameters[0]);
+                    if (targetPlayer == null)
+                    {
+                        args.Player.SendMessage(String.Format("Player {0} not found", args.Parameters[0]), Color.DarkOrange);
+                        return;
+                    }
+                    if (player.ChangeMoney(-amount) && targetPlayer.ChangeMoney(amount))
+                    {
+                        targetPlayer.TSPlayer.SendMessage(String.Format("You've received {0} from {1}", PlayerData.MoneyToString(amount), args.Player.Name), Color.DarkGreen);
+                        args.Player.SendMessage("Transfer successful", Color.DarkGreen);
+                        return;
+                    }
+                    args.Player.SendMessage("Transfer failed. Check your balance?", Color.DarkOrange);
+                    return;
+                }
+            }
+            args.Player.SendMessage("Syntax: /pay \"user name\" ammount", Color.DarkOrange);
+        }
+        public void BalanceCommand(CommandArgs args)
+        {
+            var player = PlayerList[args.Player.Index];
+            if (player != null)
+                args.Player.SendMessage(String.Format("Balance: {0}", PlayerData.MoneyToString(player.Money)), Color.DarkOliveGreen);
         }
 
         public void OnJoin(int who, HandledEventArgs args)
@@ -215,14 +254,15 @@ namespace Vault
         {
             try
             {
-                PlayerList[who].StopUpdating();
+                if (PlayerList[who] != null)
+                    PlayerList[who].StopUpdating();
                 PlayerList[who] = null;
             }
             catch (Exception ex)
             {
+                Log.ConsoleError(ex.ToString());
                 if (who >= 0)
                     PlayerList[who] = null;
-                Log.ConsoleError(ex.ToString());
             }
         }
         public void OnGetData(GetDataEventArgs e)
@@ -347,6 +387,7 @@ namespace Vault
             public bool AnnounceTimedPay = false;
             public bool AnnounceKillGain = false;
             public bool AnnounceBossGain = true;
+            public bool LogKillCounts = true;
             
         }
         private void CreateConfig()
@@ -408,6 +449,13 @@ namespace Vault
             {
                 return random.Next(min, max);
             }
+        }
+        internal PlayerData GetPlayerByName(string name)
+        {
+            for (int i = 0; i < PlayerList.Length; i++)
+                if (PlayerList[i] != null && PlayerList[i].TSPlayer.Name.ToLower() == name.ToLower())
+                    return PlayerList[i];
+            return null;
         }
     }
 }

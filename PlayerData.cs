@@ -56,12 +56,15 @@ namespace Vault
         }
         public void AddKill(int mobID)
         {
-            var killDict = GetKillCounts();
-            if (killDict.ContainsKey(mobID))
-                killDict[mobID] += 1;
-            else
-                killDict.Add(mobID, 1);
-            main.Database.Query("UPDATE vault_players SET killData = @0 WHERE username = @1 AND worldID = @2", Newtonsoft.Json.JsonConvert.SerializeObject(killDict), TSPlayer.Name, Main.worldID);
+            if (main.config.LogKillCounts)
+            {
+                var killDict = GetKillCounts();
+                if (killDict.ContainsKey(mobID))
+                    killDict[mobID] += 1;
+                else
+                    killDict.Add(mobID, 1);
+                main.Database.Query("UPDATE vault_players SET killData = @0 WHERE username = @1 AND worldID = @2", Newtonsoft.Json.JsonConvert.SerializeObject(killDict), TSPlayer.Name, Main.worldID);
+            }
         }
         public PlayerData(Vault instance, TSPlayer player)
         {
