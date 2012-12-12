@@ -156,7 +156,31 @@ namespace Vault
             }
             return returnDict;
         }
-
+        public static string MoneyToString(int amount)
+        {
+            int[] money = MoneyToArray(amount);
+            StringBuilder builder = new StringBuilder(50);
+            if (money[3] > 0)
+                builder.AppendFormat("{0} platinum {1} gold {2} silver {3} copper", money[3], money[2], money[1], money[0]);
+            else if (money[2] > 0)
+                builder.AppendFormat("{0} gold {1} silver {2} copper", money[2], money[1], money[0]);
+            else if (money[1] > 0)
+                builder.AppendFormat("{0} silver {1} copper", money[1], money[0]);
+            else
+                builder.AppendFormat("{0} copper", money[0]);
+            return builder.ToString();
+        }
+        public static int[] MoneyToArray(int amount)
+        {
+            int[] moneyArray = new int[4];
+            moneyArray[0] = amount % 100;
+            moneyArray[1] = amount % 10000;
+            moneyArray[2] = amount % 1000000;
+            moneyArray[3] = (int)Math.Floor(amount / 1000000d);
+            moneyArray[2] = (int)((moneyArray[2] - moneyArray[1]) / 10000);
+            moneyArray[1] = (int)((moneyArray[1] - moneyArray[0]) / 100);
+            return moneyArray;
+        }
         //--------------------------------------------------------------------------------
         public Vault(Main game) : base(game)
         {
@@ -239,7 +263,7 @@ namespace Vault
                     }
                     if (player.ChangeMoney(-amount) && targetPlayer.ChangeMoney(amount))
                     {
-                        targetPlayer.TSPlayer.SendMessage(String.Format("You've received {0} from {1}", PlayerData.MoneyToString(amount), args.Player.Name), Color.DarkGreen);
+                        targetPlayer.TSPlayer.SendMessage(String.Format("You've received {0} from {1}", MoneyToString(amount), args.Player.Name), Color.DarkGreen);
                         args.Player.SendMessage("Transfer successful", Color.DarkGreen);
                         return;
                     }
@@ -266,7 +290,7 @@ namespace Vault
         {
             var player = PlayerList[args.Player.Index];
             if (player != null)
-                args.Player.SendMessage(String.Format("Balance: {0}", PlayerData.MoneyToString(player.Money)), Color.DarkOliveGreen);
+                args.Player.SendMessage(String.Format("Balance: {0}", MoneyToString(player.Money)), Color.DarkOliveGreen);
         }
 
         public void OnJoin(int who, HandledEventArgs args)
