@@ -25,21 +25,16 @@ namespace Vault
                 money = value;
             }
         }
-        public bool ChangeMoney(int ammount, bool announce = false)
+        public bool ChangeMoney(int amount, bool announce = false)
         {
             HandledEventArgs args = new HandledEventArgs();
-            if (this.money >= ammount * -1)
-            {
-                foreach (var action in Vault.MoneyEventHandlers)
+            if (this.money >= amount * -1)
+            {                
+                if (!Vault.InvokeEvent(this.TSPlayer, amount, this.money + amount, args))
                 {
-                    if (action != null)
-                        action(this.TSPlayer, ammount, this.money + ammount, args);
-                }
-                if (!args.Handled)
-                {
-                    this.Money += ammount;
+                    this.Money += amount;
                     if (announce)
-                        TSPlayer.SendMessage(String.Format("You've {1} {0}", MoneyToString(ammount), ammount >= 0 ? "gained" : "lost"), Color.DarkOrange);
+                        TSPlayer.SendMessage(String.Format("You've {1} {0}", MoneyToString(amount), amount >= 0 ? "gained" : "lost"), Color.DarkOrange);
                     return true;
                 }
             }
@@ -89,9 +84,9 @@ namespace Vault
             result.Dispose();
         }
 
-        public static string MoneyToString(int ammount)
+        public static string MoneyToString(int amount)
         {
-            int[] money = MoneyToArray(ammount);
+            int[] money = MoneyToArray(amount);
             StringBuilder builder = new StringBuilder(50);
             if (money[3] > 0)
                 builder.AppendFormat("{0} platinum {1} gold {2} silver {3} copper", money[3], money[2], money[1], money[0]);
@@ -103,13 +98,13 @@ namespace Vault
                 builder.AppendFormat("{0} copper", money[0]);
             return builder.ToString();
         }
-        public static int[] MoneyToArray(int ammount)
+        public static int[] MoneyToArray(int amount)
         {
             int[] moneyArray = new int[4];
-            moneyArray[0] = ammount % 100;
-            moneyArray[1] = ammount % 10000;
-            moneyArray[2] = ammount % 1000000;
-            moneyArray[3] = (int)Math.Floor(ammount / 1000000d);
+            moneyArray[0] = amount % 100;
+            moneyArray[1] = amount % 10000;
+            moneyArray[2] = amount % 1000000;
+            moneyArray[3] = (int)Math.Floor(amount / 1000000d);
             moneyArray[2] = (int)((moneyArray[2] - moneyArray[1]) / 10000);
             moneyArray[1] = (int)((moneyArray[1] - moneyArray[0]) / 100);
             return moneyArray;
@@ -165,7 +160,7 @@ namespace Vault
                             {
                                 player.IdleCount++;
                                 if (this.TimerCount == main.config.PayEveryMinutes)
-                                    player.ChangeMoney(main.config.PayAmmount, main.config.AnnounceTimedPay);
+                                    player.ChangeMoney(main.config.Payamount, main.config.AnnounceTimedPay);
                                 this.TimerCount++;
                                 if (this.TimerCount > main.config.PayEveryMinutes)
                                     this.TimerCount = 1;

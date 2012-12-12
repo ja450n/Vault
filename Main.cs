@@ -58,7 +58,7 @@ namespace Vault
         internal Config config;
         private readonly Random random = new Random();
         private readonly object _randlocker = new object();
-        public delegate void MoneyEvent(TSPlayer sender, int ammount, int newTotal, HandledEventArgs args);
+        public delegate void MoneyEvent(TSPlayer sender, int amount, int newTotal, HandledEventArgs args);
         internal List<BossNPC> BossList = new List<BossNPC>();
         public override string Name
         {
@@ -74,12 +74,20 @@ namespace Vault
         }
         public override Version Version
         {
-            get { return new Version("0.11"); }
+            get { return new Version("0.12"); }
         }
 
         //-------------------- Static ----------------------------------------------------
         private static Vault CurrentInstance = null;
-        public static List<MoneyEvent> MoneyEventHandlers = new List<MoneyEvent>();
+        public static event MoneyEvent OnMoneyEvent;
+        internal static bool InvokeEvent(TSPlayer player, int amt, int money, HandledEventArgs args)
+        {
+            if (OnMoneyEvent != null)
+                OnMoneyEvent(player, amt, money, args);
+            if (args.Handled)
+                return true;
+            return false;
+        }
         public static int GetBalance(string Name)
         {
             try
@@ -91,41 +99,42 @@ namespace Vault
             catch (Exception ex) { Log.ConsoleError(ex.ToString()); }
             return -1;
         }
-        public static bool SetBalance(string Name, int Ammount)
+        public static bool SetBalance(string Name, int amount)
         {
             try
             {
                 var player = CurrentInstance.PlayerList.First(p => p.TSPlayer.Name == Name);
                 if (player != null)
-                    player.Money = Ammount;
+                    player.Money = amount;
                 else
-                    CurrentInstance.Database.Query("UPDATE vault_players SET money = @0 WHERE username = @1 AND worldID = @2", Ammount, Name, Main.worldID);
+                    CurrentInstance.Database.Query("UPDATE vault_players SET money = @0 WHERE username = @1 AND worldID = @2", amount, Name, Main.worldID);
                 return true;
             }
             catch (Exception ex) { Log.ConsoleError(ex.ToString()); }
             return false;
         }
-        public static bool ModifyBalance(string Name, int Ammount)
+        public static bool ModifyBalance(string Name, int amount)
         {
             try
             {
                 var player = CurrentInstance.PlayerList.First(p => p.TSPlayer.Name == Name);
                 if (player != null)
                 {
-                    if (player.ChangeMoney(Ammount))
+                    if (player.ChangeMoney(amount))
                         return true;
                 }
                 else
                 {
                     var Reader = CurrentInstance.Database.QueryReader("SELECT money FROM vault_players WHERE username = @0 AND worldID = @1", Name, Main.worldID);
-                    if (Reader.Read() && Reader.Get<int>("money") >= Ammount * -1)
+                    if (Reader.Read() && Reader.Get<int>("money") >= amount * -1)
                     {
-                        int NewAmmount = Reader.Get<int>("money") + Ammount;
+                        int Newamount = Reader.Get<int>("money") + amount;
                         Reader.Dispose();
-                        CurrentInstance.Database.Query("UPDATE vault_players SET money = @0 WHERE username = @1 AND worldID = @2", NewAmmount, Name, Main.worldID);
+                        CurrentInstance.Database.Query("UPDATE vault_players SET money = @0 WHERE username = @1 AND worldID = @2", Newamount, Name, Main.worldID);
                         return true;
                     }
-                    Reader.Dispose();
+                    else
+                        Reader.Dispose();
                 }
             }
             catch (Exception ex) { Log.ConsoleError(ex.ToString()); }
@@ -211,6 +220,7 @@ namespace Vault
 
             Commands.ChatCommands.Add(new Command("vault.pay", PayCommand, "pay"));
             Commands.ChatCommands.Add(new Command("vault.balance", BalanceCommand, "balance"));
+            Commands.ChatCommands.Add(new Command("vault.modify", ModifyCommand, "modbal", "modifybalance"));
 
         }
         public void PayCommand(CommandArgs args)
@@ -237,7 +247,20 @@ namespace Vault
                     return;
                 }
             }
-            args.Player.SendMessage("Syntax: /pay \"user name\" ammount", Color.DarkOrange);
+            args.Player.SendMessage("Syntax: /pay \"user name\" amount", Color.DarkOrange);
+        }
+        public void ModifyCommand(CommandArgs args)
+        {
+            int amount;
+            if (args.Parameters.Count == 2 && int.TryParse(args.Parameters[1], out amount))
+            {
+                if (ModifyBalance(args.Parameters[0], amount))
+                    args.Player.SendMessage(String.Format("Player {0}'s balance modified", args.Parameters[0]), Color.DarkGreen);
+                else
+                    args.Player.SendMessage(String.Format("Can't modify player {0}'s balance. No such player found or balance below zero.", args.Parameters[0]), Color.DarkOrange);
+                return;
+            }
+            args.Player.SendMessage("Syntax: /modbal \"user name\" amount", Color.DarkOrange);
         }
         public void BalanceCommand(CommandArgs args)
         {
@@ -383,7 +406,7 @@ namespace Vault
             public bool GiveTimedPay = true;
             public byte PayEveryMinutes = 10;
             public byte MaxIdleTime = 3;
-            public int PayAmmount = 5000;
+            public int Payamount = 5000;
             public bool AnnounceTimedPay = false;
             public bool AnnounceKillGain = false;
             public bool AnnounceBossGain = true;
@@ -394,6 +417,7 @@ namespace Vault
         {
             string filepath = Path.Combine(SavePath, "config.json");
             try
+
             {
                 using (var stream = new FileStream(filepath, FileMode.Create, FileAccess.Write, FileShare.Write))
                 {
