@@ -103,7 +103,7 @@ namespace Vault
         {
             try
             {
-                var player = CurrentInstance.PlayerList.First(p => p.TSPlayer.Name == Name);
+                var player = CurrentInstance.GetPlayerByName(Name);
                 if (player != null)
                     player.Money = amount;
                 else
@@ -117,7 +117,7 @@ namespace Vault
         {
             try
             {
-                var player = CurrentInstance.PlayerList.First(p => p.TSPlayer.Name == Name);
+                var player = CurrentInstance.GetPlayerByName(Name);
                 if (player != null)
                 {
                     if (player.ChangeMoney(amount))
