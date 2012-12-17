@@ -42,9 +42,12 @@ namespace Vault
             float newValue = (float)Npc.value * valueMod;
             float valuePerDmg = (float)newValue / (float)totalDmg;
             //Console.WriteLine("Total dmg: {0}, newValue: {1}, val/dmg: {2}", totalDmg, newValue, valuePerDmg);
+            float Mod = 1;
+            if (Vault.config.OptionalMobModifier.ContainsKey(Npc.netID))
+                Mod *= Vault.config.OptionalMobModifier[Npc.netID]; // apply custom modifiers      
             Dictionary<int, int> returnDict = new Dictionary<int,int>();
             foreach (KeyValuePair<int,int> kv in damageData)
-                returnDict[kv.Key] = (int)(kv.Value * valuePerDmg);
+                returnDict[kv.Key] = (int)(kv.Value * valuePerDmg * Mod);
             return returnDict;
         }
 
@@ -55,7 +58,7 @@ namespace Vault
         public IDbConnection Database;
         public String SavePath = Path.Combine(TShock.SavePath, "Vault/");
         internal PlayerData[] PlayerList = new PlayerData[256];
-        internal Config config;
+        internal static Config config;
         private readonly Random random = new Random();
         private readonly object _randlocker = new object();
         public delegate void MoneyEvent(TSPlayer sender, int amount, int newTotal, HandledEventArgs args);
@@ -74,7 +77,7 @@ namespace Vault
         }
         public override Version Version
         {
-            get { return new Version("0.12"); }
+            get { return new Version("0.13"); }
         }
 
         //-------------------- Static ----------------------------------------------------
@@ -143,7 +146,7 @@ namespace Vault
         public static Dictionary<int, int> GetPlayerKillCounts(string Name)
         {
             Dictionary<int, int> returnDict = new Dictionary<int, int>();
-            if (CurrentInstance.config.LogKillCounts)
+            if (config.LogKillCounts)
             {
                 try
                 {
@@ -158,16 +161,19 @@ namespace Vault
         }
         public static string MoneyToString(int amount)
         {
-            int[] money = MoneyToArray(amount);
+            if (amount == 0)
+                return "0 copper";
+            int[] money = MoneyToArray(Math.Abs(amount));
             StringBuilder builder = new StringBuilder(50);
             if (money[3] > 0)
-                builder.AppendFormat("{0} platinum {1} gold {2} silver {3} copper", money[3], money[2], money[1], money[0]);
-            else if (money[2] > 0)
-                builder.AppendFormat("{0} gold {1} silver {2} copper", money[2], money[1], money[0]);
-            else if (money[1] > 0)
-                builder.AppendFormat("{0} silver {1} copper", money[1], money[0]);
-            else
-                builder.AppendFormat("{0} copper", money[0]);
+                builder.AppendFormat("{0} platinum ", money[3]);
+            if (money[2] > 0)
+                builder.AppendFormat("{0} gold ", money[2]);
+            if (money[1] > 0)
+                builder.AppendFormat("{0} silver ", money[1]);
+            if (money[0] > 0)
+                builder.AppendFormat("{0} copper ", money[0]);
+            builder.Remove(builder.Length - 1, 1);
             return builder.ToString();
         }
         public static int[] MoneyToArray(int amount)
@@ -314,108 +320,133 @@ namespace Vault
         }
         public void OnGetData(GetDataEventArgs e)
         {
-            /*if (e.Handled)
-                return;*/
+            if (e.Handled)
+                return;
             try
             {
-                switch (e.MsgID)
+                if (e.MsgID == PacketTypes.PlayerUpdate)
                 {
-                    case PacketTypes.PlayerUpdate:
-                        {
-                            byte plyID = e.Msg.readBuffer[e.Index];
-                            byte flags = e.Msg.readBuffer[e.Index + 1];
-                            var player = PlayerList[plyID];
-                            if (player != null && player.LastState != flags)
-                            {
-                                player.LastState = flags;
-                                player.IdleCount = 0;
-                            }
-                            break;
-                        }
-                }
+                    byte plyID = e.Msg.readBuffer[e.Index];
+                    byte flags = e.Msg.readBuffer[e.Index + 1];
+                    var player = PlayerList[plyID];
+                    if (player != null && player.LastState != flags)
+                    {
+                        player.LastState = flags;
+                        player.IdleCount = 0;
+                    }
+                }            
             }
             catch (Exception ex) { Log.ConsoleError(ex.ToString()); }
         }
         public void OnSendData(SendDataEventArgs e)
         {
+            if (e.Handled)
+                return;
             try
             {
-                 switch (e.MsgID)
-                {                               
-                     case PacketTypes.NpcStrike:
-                         {
-                             NPC npc = Main.npc[e.number];
-                            // Console.WriteLine("(SendData) NpcStrike -> 1:{0} 2:{4} 3:{5} 4:{6} 5:{1} remote:{2} ignore:{3}", e.number, e.number5, e.remoteClient, e.ignoreClient, e.number2, e.number3, e.number4);
-                            // Console.WriteLine("NPC: life:{0} reallife:{1}", npc.life);
-                             if (npc != null)
-                             {
-                                 if (npc.boss)
-                                 {
-                                     if (npc.life <= 0)
-                                     {
-                                         for (int i = BossList.Count - 1; i >= 0; i--)
-                                         {
-                                             if (BossList[i].Npc == null)                                             
-                                                 BossList.RemoveAt(i);                                             
-                                             else if (BossList[i].Npc == npc)
-                                             {
-                                                 var rewardDict = BossList[i].GetRecalculatedReward();
-                                                 foreach (KeyValuePair<int, int> reward in rewardDict)
-                                                 {
-                                                     if (PlayerList[reward.Key] != null)
-                                                         PlayerList[reward.Key].ChangeMoney(reward.Value, config.AnnounceBossGain);
-                                                 } 
-                                                 BossList.RemoveAt(i);  
-                                             }
-                                             else if (!BossList[i].Npc.active)
-                                                 BossList.RemoveAt(i);                                             
-                                         }
+                if (e.MsgID == PacketTypes.NpcStrike)
+                {
+                    NPC npc = Main.npc[e.number];
+                    // Console.WriteLine("(SendData) NpcStrike -> 1:{0} 2:{4} 3:{5} 4:{6} 5:{1} remote:{2} ignore:{3}", e.number, e.number5, e.remoteClient, e.ignoreClient, e.number2, e.number3, e.number4);
+                    // Console.WriteLine("NPC: life:{0} reallife:{1}", npc.life);
+                    if (npc != null)
+                    {
+                        if (npc.boss)
+                        {
+                            if (npc.life <= 0)
+                            {
+                                for (int i = BossList.Count - 1; i >= 0; i--)
+                                {
+                                    if (BossList[i].Npc == null)
+                                        BossList.RemoveAt(i);
+                                    else if (BossList[i].Npc == npc)
+                                    {
+                                        var rewardDict = BossList[i].GetRecalculatedReward();
+                                        foreach (KeyValuePair<int, int> reward in rewardDict)
+                                        {
+                                            if (PlayerList[reward.Key] != null)
+                                                PlayerList[reward.Key].ChangeMoney(reward.Value, config.AnnounceBossGain);
+                                        }
+                                        BossList.RemoveAt(i);
+                                    }
+                                    else if (!BossList[i].Npc.active)
+                                        BossList.RemoveAt(i);
+                                }
 
-                                         if (e.ignoreClient >= 0)
-                                         {
-                                              var player = PlayerList[e.ignoreClient];
-                                              if (player != null)
-                                                  player.AddKill(npc.netID);
-                                         }
-                                     }
-                                     else if (e.ignoreClient >= 0)
-                                     {
-                                         var bossnpc = BossList.Find(n => n.Npc == npc);
-                                         if (bossnpc != null)
-                                             bossnpc.AddDamage(e.ignoreClient, (int)e.number2);
-                                         else
-                                         {
-                                             BossNPC newBoss = new BossNPC(npc);
-                                             newBoss.AddDamage(e.ignoreClient, (int)e.number2);
-                                             BossList.Add(newBoss);
-                                         }
-                                     }
-                                 }
-                                 else if (npc.life <= 0 && e.ignoreClient >= 0)
-                                 {
-                                     var player = PlayerList[e.ignoreClient];
-                                     if (player != null)
-                                     {
-                                         if (npc.value > 0)
-                                         {
-                                             float Mod = 1;
-                                             if (player.TSPlayer.TPlayer.buffType.Contains(13)) // battle potion
-                                                 Mod *= config.BattlePotionModifier;
-                                             if (config.OptionalMobModifier.ContainsKey(npc.netID))
-                                                 Mod *= config.OptionalMobModifier[npc.netID]; // apply custom modifiers                                        
+                                if (e.ignoreClient >= 0)
+                                {
+                                    var player = PlayerList[e.ignoreClient];
+                                    if (player != null)
+                                        player.AddKill(npc.netID);
+                                }
+                            }
+                            else if (e.ignoreClient >= 0)
+                            {
+                                var bossnpc = BossList.Find(n => n.Npc == npc);
+                                if (bossnpc != null)
+                                    bossnpc.AddDamage(e.ignoreClient, (int)e.number2);
+                                else
+                                {
+                                    BossNPC newBoss = new BossNPC(npc);
+                                    newBoss.AddDamage(e.ignoreClient, (int)e.number2);
+                                    BossList.Add(newBoss);
+                                }
+                            }
+                        }
+                        else if (npc.life <= 0 && e.ignoreClient >= 0)
+                        {
+                            var player = PlayerList[e.ignoreClient];
+                            if (player != null)
+                            {
+                                if (npc.value > 0)
+                                {
+                                    float Mod = 1;
+                                    if (player.TSPlayer.TPlayer.buffType.Contains(13)) // battle potion
+                                        Mod *= config.BattlePotionModifier;
+                                    if (config.OptionalMobModifier.ContainsKey(npc.netID))
+                                        Mod *= config.OptionalMobModifier[npc.netID]; // apply custom modifiers                                        
 
-                                             int minVal = (int)((npc.value - (npc.value * 0.1)) * Mod);
-                                             int maxVal = (int)((npc.value + (npc.value * 0.1)) * Mod);
-                                             int rewardAmt = RandomNumber(minVal, maxVal);
-                                             player.ChangeMoney(rewardAmt, config.AnnounceKillGain);
-                                         }
-                                         player.AddKill(npc.netID);
-                                     }
-                                 }
-                             }
-
-                             break;
-                         }
+                                    int minVal = (int)((npc.value - (npc.value * 0.1)) * Mod);
+                                    int maxVal = (int)((npc.value + (npc.value * 0.1)) * Mod);
+                                    int rewardAmt = RandomNumber(minVal, maxVal);
+                                    player.ChangeMoney(rewardAmt, config.AnnounceKillGain);
+                                }
+                                player.AddKill(npc.netID);
+                            }
+                        }
+                    }
+                }
+                else if (e.MsgID == PacketTypes.PlayerKillMe)
+                {
+                    //Console.WriteLine("(SendData) PlayerKillMe -> 1:{0} 2:{4} 3:{5} 4:{6} 5:{1} remote:{2} ignore:{3}", e.number, e.number5, e.remoteClient, e.ignoreClient, e.number2, e.number3, e.number4);
+                    // 1-playerID, 2-direction, 3-dmg, 4-PVP
+                    var deadPlayer = PlayerList[e.number];
+                    if (deadPlayer != null)
+                    {
+                        int penaltyAmmount = 0;
+                        if (config.StaticDeathPenalty)
+                            penaltyAmmount = RandomNumber(config.DeathPenaltyMin, config.DeathPenaltyMax);
+                        else
+                            penaltyAmmount = (int)(deadPlayer.Money * (config.DeathPenaltyPercent / 100f));
+                     //   Console.WriteLine("penalty ammount: {0}", penaltyAmmount);
+                        if (deadPlayer.ChangeMoney(-penaltyAmmount, true) && e.number4 == 1 && config.PvPWinnerTakesLoosersPenalty && deadPlayer.LastPVPid != -1)
+                        {
+                            var killer = PlayerList[deadPlayer.LastPVPid];
+                            if (killer != null)
+                                killer.ChangeMoney(penaltyAmmount, true);
+                        }
+                    }
+                }
+                else if (e.MsgID == PacketTypes.PlayerDamage)
+                {
+                    // Console.WriteLine("(SendData) PlayerDamage -> 1:{0} 2:{4} 3:{5} 4:{6} 5:{1} remote:{2} ignore:{3}", e.number, e.number5, e.remoteClient, e.ignoreClient, e.number2, e.number3, e.number4);
+                    // 1: pID, ignore: Who, 2: dir, 3:dmg, 4:pvp;
+                    if (e.number4 == 1) // if PvP
+                    {
+                        var player = PlayerList[e.number];
+                        if (player != null)
+                            player.LastPVPid = e.ignoreClient;
+                    }
                 }
             }            
             catch (Exception ex) { Log.ConsoleError(ex.ToString()); }
@@ -435,7 +466,11 @@ namespace Vault
             public bool AnnounceKillGain = false;
             public bool AnnounceBossGain = true;
             public bool LogKillCounts = true;
-            
+            public bool StaticDeathPenalty = false;
+            public int DeathPenaltyMax = 10000;
+            public int DeathPenaltyMin = 10000;
+            public int DeathPenaltyPercent = 10;
+            public bool PvPWinnerTakesLoosersPenalty = true;
         }
         private void CreateConfig()
         {

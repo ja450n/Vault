@@ -15,6 +15,7 @@ namespace Vault
         public TSPlayer TSPlayer;
         public byte LastState = 0;
         public byte IdleCount = 0;
+        public int LastPVPid = -1;
         private int money;
         public int Money
         {
@@ -51,7 +52,7 @@ namespace Vault
         }
         public void AddKill(int mobID)
         {
-            if (main.config.LogKillCounts)
+            if (Vault.config.LogKillCounts)
             {
                 var killDict = GetKillCounts();
                 if (killDict.ContainsKey(mobID))
@@ -66,7 +67,7 @@ namespace Vault
             main = instance;
             TSPlayer = player;
             UpdatePlayerData();
-            if (main.config.GiveTimedPay)
+            if (Vault.config.GiveTimedPay)
                 StartUpdating();
         }
         public void UpdatePlayerData()
@@ -78,7 +79,7 @@ namespace Vault
             }
             else
             {
-                this.money = main.config.InitialMoney;
+                this.money = Vault.config.InitialMoney;
                 main.Database.Query("INSERT INTO vault_players(username, money, worldID, killData) VALUES(@0,@1,@2,@3)", TSPlayer.Name, this.money, Main.worldID, Newtonsoft.Json.JsonConvert.SerializeObject(new Dictionary<int,int>()));
             }
             result.Dispose();
@@ -130,13 +131,13 @@ namespace Vault
                     {
                         try
                         {
-                            if (player.IdleCount < main.config.MaxIdleTime)
+                            if (player.IdleCount < Vault.config.MaxIdleTime)
                             {
                                 player.IdleCount++;
-                                if (this.TimerCount == main.config.PayEveryMinutes)
-                                    player.ChangeMoney(main.config.Payamount, main.config.AnnounceTimedPay);
+                                if (this.TimerCount == Vault.config.PayEveryMinutes)
+                                    player.ChangeMoney(Vault.config.Payamount, Vault.config.AnnounceTimedPay);
                                 this.TimerCount++;
-                                if (this.TimerCount > main.config.PayEveryMinutes)
+                                if (this.TimerCount > Vault.config.PayEveryMinutes)
                                     this.TimerCount = 1;
                             }
                         }
