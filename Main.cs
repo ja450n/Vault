@@ -61,7 +61,6 @@ namespace Vault
         internal static Config config;
         private readonly Random random = new Random();
         private readonly object _randlocker = new object();
-        public delegate void MoneyEvent(TSPlayer sender, int amount, int newTotal, HandledEventArgs args);
         internal List<BossNPC> BossList = new List<BossNPC>();
         public override string Name
         {
@@ -77,117 +76,8 @@ namespace Vault
         }
         public override Version Version
         {
-            get { return new Version("0.13"); }
+            get { return new Version("0.15"); }
         }
-
-        //-------------------- Static ----------------------------------------------------
-        private static Vault CurrentInstance = null;
-        public static event MoneyEvent OnMoneyEvent;
-        internal static bool InvokeEvent(TSPlayer player, int amt, int money, HandledEventArgs args)
-        {
-            if (OnMoneyEvent != null)
-                OnMoneyEvent(player, amt, money, args);
-            if (args.Handled)
-                return true;
-            return false;
-        }
-        public static int GetBalance(string Name)
-        {
-            try
-            {
-                var Reader = CurrentInstance.Database.QueryReader("SELECT money FROM vault_players WHERE username = @0 AND worldID = @1", Name, Main.worldID);          
-                if (Reader.Read())
-                    return Reader.Get<int>("money");
-            }
-            catch (Exception ex) { Log.ConsoleError(ex.ToString()); }
-            return -1;
-        }
-        public static bool SetBalance(string Name, int amount)
-        {
-            try
-            {
-                var player = CurrentInstance.GetPlayerByName(Name);
-                if (player != null)
-                    player.Money = amount;
-                else
-                    CurrentInstance.Database.Query("UPDATE vault_players SET money = @0 WHERE username = @1 AND worldID = @2", amount, Name, Main.worldID);
-                return true;
-            }
-            catch (Exception ex) { Log.ConsoleError(ex.ToString()); }
-            return false;
-        }
-        public static bool ModifyBalance(string Name, int amount)
-        {
-            try
-            {
-                var player = CurrentInstance.GetPlayerByName(Name);
-                if (player != null)
-                {
-                    if (player.ChangeMoney(amount))
-                        return true;
-                }
-                else
-                {
-                    var Reader = CurrentInstance.Database.QueryReader("SELECT money FROM vault_players WHERE username = @0 AND worldID = @1", Name, Main.worldID);
-                    if (Reader.Read() && Reader.Get<int>("money") >= amount * -1)
-                    {
-                        int Newamount = Reader.Get<int>("money") + amount;
-                        Reader.Dispose();
-                        CurrentInstance.Database.Query("UPDATE vault_players SET money = @0 WHERE username = @1 AND worldID = @2", Newamount, Name, Main.worldID);
-                        return true;
-                    }
-                    else
-                        Reader.Dispose();
-                }
-            }
-            catch (Exception ex) { Log.ConsoleError(ex.ToString()); }
-            return false;
-        }
-        public static Dictionary<int, int> GetPlayerKillCounts(string Name)
-        {
-            Dictionary<int, int> returnDict = new Dictionary<int, int>();
-            if (config.LogKillCounts)
-            {
-                try
-                {
-                    var reader = CurrentInstance.Database.QueryReader("SELECT killData FROM vault_players WHERE username = @0 AND worldID = @1", Name, Main.worldID);
-                    if (reader.Read())
-                        returnDict = Newtonsoft.Json.JsonConvert.DeserializeObject<Dictionary<int, int>>(reader.Get<string>("killData"));
-                    reader.Dispose();
-                }
-                catch (Exception ex) { Log.ConsoleError(ex.ToString()); }
-            }
-            return returnDict;
-        }
-        public static string MoneyToString(int amount)
-        {
-            if (amount == 0)
-                return "0 copper";
-            int[] money = MoneyToArray(Math.Abs(amount));
-            StringBuilder builder = new StringBuilder(50);
-            if (money[3] > 0)
-                builder.AppendFormat("{0} platinum ", money[3]);
-            if (money[2] > 0)
-                builder.AppendFormat("{0} gold ", money[2]);
-            if (money[1] > 0)
-                builder.AppendFormat("{0} silver ", money[1]);
-            if (money[0] > 0)
-                builder.AppendFormat("{0} copper ", money[0]);
-            builder.Remove(builder.Length - 1, 1);
-            return builder.ToString();
-        }
-        public static int[] MoneyToArray(int amount)
-        {
-            int[] moneyArray = new int[4];
-            moneyArray[0] = amount % 100;
-            moneyArray[1] = amount % 10000;
-            moneyArray[2] = amount % 1000000;
-            moneyArray[3] = (int)Math.Floor(amount / 1000000d);
-            moneyArray[2] = (int)((moneyArray[2] - moneyArray[1]) / 10000);
-            moneyArray[1] = (int)((moneyArray[1] - moneyArray[0]) / 100);
-            return moneyArray;
-        }
-        //--------------------------------------------------------------------------------
         public Vault(Main game) : base(game)
         {
             Order = 1;
@@ -244,14 +134,36 @@ namespace Vault
                 new SqlColumn("username", MySqlDbType.VarChar) { Length = 30 },
                 new SqlColumn("money", MySqlDbType.Int32),
                 new SqlColumn("worldID", MySqlDbType.Int32),
-                new SqlColumn("killData", MySqlDbType.Text)                
+                new SqlColumn("killData", MySqlDbType.Text),
+                new SqlColumn("tempMin", MySqlDbType.Int32),
+                new SqlColumn("totalOnline", MySqlDbType.Int32),
+                new SqlColumn("lastSeen", MySqlDbType.Text)
                 ));
 
 
             Commands.ChatCommands.Add(new Command("vault.pay", PayCommand, "pay"));
             Commands.ChatCommands.Add(new Command("vault.balance", BalanceCommand, "balance"));
             Commands.ChatCommands.Add(new Command("vault.modify", ModifyCommand, "modbal", "modifybalance"));
+            Commands.ChatCommands.Add(new Command("vault.seen", SeenCommand, "seen"));
 
+        }
+        public void SeenCommand(CommandArgs args)
+        {
+            if (args.Parameters.Count == 1)
+            {
+                var reader = Database.QueryReader("SELECT lastSeen FROM vault_players WHERE username = @0 AND worldID = @1", args.Parameters[0], Main.worldID);
+                bool found = false;
+                if (reader.Read())
+                {
+                    args.Player.SendMessage(String.Format("{0} has last been seen at {1}", args.Parameters[0], JsonConvert.DeserializeObject<DateTime>(reader.Get<string>("lastSeen"))), Color.DarkGreen);
+                    found = true;
+                }
+                reader.Dispose();
+                if (!found)
+                    args.Player.SendMessage(String.Format("Haven't seen {0}", args.Parameters[0]), Color.DarkOrange);
+                return;
+            }
+            args.Player.SendMessage("Syntax: /seen \"player name\"", Color.DarkOrange);
         }
         public void PayCommand(CommandArgs args)
         {
@@ -296,7 +208,18 @@ namespace Vault
         {
             var player = PlayerList[args.Player.Index];
             if (player != null)
+            {
+                if (args.Parameters.Count > 0 && args.Player.Group.HasPermission("vault.balance.others"))
+                {
+                    int b = GetBalance(args.Parameters[0]);
+                    if (b == -1)
+                        args.Player.SendMessage(String.Format("No records for player {0} found", args.Parameters[0]), Color.DarkOrange);
+                    else
+                        args.Player.SendMessage(String.Format("{0}'s balance: {1}", args.Parameters[0], MoneyToString(b)), Color.DarkOliveGreen);
+                    return;
+                }
                 args.Player.SendMessage(String.Format("Balance: {0}", MoneyToString(player.Money)), Color.DarkOliveGreen);
+            }
         }
 
         public void OnJoin(int who, HandledEventArgs args)
@@ -429,7 +352,7 @@ namespace Vault
                         else
                             penaltyAmmount = (int)(deadPlayer.Money * (config.DeathPenaltyPercent / 100f));
                      //   Console.WriteLine("penalty ammount: {0}", penaltyAmmount);
-                        if (deadPlayer.ChangeMoney(-penaltyAmmount, true) && e.number4 == 1 && config.PvPWinnerTakesLoosersPenalty && deadPlayer.LastPVPid != -1)
+                        if (!deadPlayer.TSPlayer.Group.HasPermission("vault.bypass.death") && deadPlayer.ChangeMoney(-penaltyAmmount, true) && e.number4 == 1 && config.PvPWinnerTakesLoosersPenalty && deadPlayer.LastPVPid != -1)
                         {
                             var killer = PlayerList[deadPlayer.LastPVPid];
                             if (killer != null)
@@ -453,19 +376,161 @@ namespace Vault
         }
 
 
+        //-------------------- Static ----------------------------------------------------
+        private static Vault CurrentInstance = null;
+        public static event MoneyEvent OnMoneyEvent;
+        public delegate void MoneyEvent(TSPlayer sender, int amount, int newTotal, HandledEventArgs args);
+        internal static bool InvokeEvent(TSPlayer player, int amt, int money, HandledEventArgs args)
+        {
+            if (OnMoneyEvent != null)
+                OnMoneyEvent(player, amt, money, args);
+            if (args.Handled)
+                return true;
+            return false;
+        }
+        public static int GetBalance(string Name)
+        {
+            try
+            {
+                var Reader = CurrentInstance.Database.QueryReader("SELECT money FROM vault_players WHERE username = @0 AND worldID = @1", Name, Main.worldID);
+                if (Reader.Read())
+                    return Reader.Get<int>("money");
+            }
+            catch (Exception ex) { Log.ConsoleError(ex.ToString()); }
+            return -1;
+        }
+        public static bool SetBalance(string Name, int amount, bool announce = true)
+        {
+            try
+            {
+                var player = CurrentInstance.GetPlayerByName(Name);
+                if (player != null)
+                {
+                    player.Money = amount;
+                    if (announce)
+                        player.TSPlayer.SendMessage(String.Format("Your balance has been set to {0}", MoneyToString(amount)), Color.DarkOrange);
+                }
+                else
+                    CurrentInstance.Database.Query("UPDATE vault_players SET money = @0 WHERE username = @1 AND worldID = @2", amount, Name, Main.worldID);
+                return true;
+            }
+            catch (Exception ex) { Log.ConsoleError(ex.ToString()); }
+            return false;
+        }
+        public static bool ModifyBalance(string Name, int amount, bool announce = true)
+        {
+            try
+            {
+                var player = CurrentInstance.GetPlayerByName(Name);
+                if (player != null)
+                {
+                    if (player.ChangeMoney(amount, announce))
+                        return true;
+                }
+                else
+                {
+                    var Reader = CurrentInstance.Database.QueryReader("SELECT money FROM vault_players WHERE username = @0 AND worldID = @1", Name, Main.worldID);
+                    if (Reader.Read() && Reader.Get<int>("money") >= amount * -1)
+                    {
+                        int Newamount = Reader.Get<int>("money") + amount;
+                        Reader.Dispose();
+                        CurrentInstance.Database.Query("UPDATE vault_players SET money = @0 WHERE username = @1 AND worldID = @2", Newamount, Name, Main.worldID);
+                        return true;
+                    }
+                    else
+                        Reader.Dispose();
+                }
+            }
+            catch (Exception ex) { Log.ConsoleError(ex.ToString()); }
+            return false;
+        }
+        public static Dictionary<int, int> GetPlayerKillCounts(string Name)
+        {
+            Dictionary<int, int> returnDict = new Dictionary<int, int>();
+
+            try
+            {
+                var player = CurrentInstance.GetPlayerByName(Name);
+                if (player != null)
+                    return player.KillData;
+                else
+                {
+                    var reader = CurrentInstance.Database.QueryReader("SELECT killData FROM vault_players WHERE username = @0 AND worldID = @1", Name, Main.worldID);
+                    if (reader.Read())
+                        returnDict = Newtonsoft.Json.JsonConvert.DeserializeObject<Dictionary<int, int>>(reader.Get<string>("killData"));
+                    reader.Dispose();
+                }
+            }
+            catch (Exception ex) { Log.ConsoleError(ex.ToString()); }
+
+            return returnDict;
+        }
+        public static int TotalOnlineTime(string Name)
+        {
+            var reader = CurrentInstance.Database.QueryReader("SELECT totalOnline FROM vault_players WHERE username = @0", Name);
+            int total = 0;
+            if (reader.Read())
+            {
+                total = reader.Get<int>("totalOnline");               
+                
+            }
+            reader.Dispose();
+            return total;
+        }
+        public static DateTime? LastSeenPlayer(string Name)
+        {
+            var reader = CurrentInstance.Database.QueryReader("SELECT lastSeen FROM vault_players WHERE username = @0", Name);  
+            if (reader.Read())
+            {
+                DateTime lastSeen = JsonConvert.DeserializeObject<DateTime>(reader.Get<string>("lastSeen"));
+                reader.Dispose();
+                return lastSeen;
+            }
+            reader.Dispose();
+            return null;
+        }
+        public static string MoneyToString(int amount)
+        {
+            if (amount == 0)
+                return "0 copper";
+            int[] money = MoneyToArray(Math.Abs(amount));
+            StringBuilder builder = new StringBuilder(50);
+            if (money[3] > 0)
+                builder.AppendFormat("{0} platinum ", money[3]);
+            if (money[2] > 0)
+                builder.AppendFormat("{0} gold ", money[2]);
+            if (money[1] > 0)
+                builder.AppendFormat("{0} silver ", money[1]);
+            if (money[0] > 0)
+                builder.AppendFormat("{0} copper ", money[0]);
+            builder.Remove(builder.Length - 1, 1);
+            return builder.ToString();
+        }
+        public static int[] MoneyToArray(int amount)
+        {
+            int[] moneyArray = new int[4];
+            moneyArray[0] = amount % 100;
+            moneyArray[1] = amount % 10000;
+            moneyArray[2] = amount % 1000000;
+            moneyArray[3] = (int)Math.Floor(amount / 1000000d);
+            moneyArray[2] = (int)((moneyArray[2] - moneyArray[1]) / 10000);
+            moneyArray[1] = (int)((moneyArray[1] - moneyArray[0]) / 100);
+            return moneyArray;
+        }
+        //--------------------------------------------------------------------------------
+
         internal class Config
         {
             public int InitialMoney = 0;
             public float BattlePotionModifier = 0.75f;
             public Dictionary<int, float> OptionalMobModifier = new Dictionary<int, float>();
             public bool GiveTimedPay = true;
-            public byte PayEveryMinutes = 10;
+            public int PayEveryMinutes = 10;
             public byte MaxIdleTime = 3;
             public int Payamount = 5000;
             public bool AnnounceTimedPay = false;
             public bool AnnounceKillGain = false;
             public bool AnnounceBossGain = true;
-            public bool LogKillCounts = true;
             public bool StaticDeathPenalty = false;
             public int DeathPenaltyMax = 10000;
             public int DeathPenaltyMin = 10000;

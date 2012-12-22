@@ -7,6 +7,8 @@ using TShockAPI;
 using TShockAPI.DB;
 using Terraria;
 using System.Threading;
+using Newtonsoft.Json;
+
 namespace Vault
 {
     internal class PlayerData
@@ -16,6 +18,9 @@ namespace Vault
         public byte LastState = 0;
         public byte IdleCount = 0;
         public int LastPVPid = -1;
+        public int TotalOnline = 0;
+        public int tempMin = 0;
+        public Dictionary<int, int> KillData = new Dictionary<int, int>();
         private int money;
         public int Money
         {
@@ -41,34 +46,19 @@ namespace Vault
             }
             return false;
         }
-        public Dictionary<int, int> GetKillCounts()
-        {
-            Dictionary<int, int> returnDict = new Dictionary<int, int>();
-            var reader = main.Database.QueryReader("SELECT killData FROM vault_players WHERE username = @0 AND worldID = @1", TSPlayer.Name, Main.worldID);
-            if (reader.Read())
-                returnDict = Newtonsoft.Json.JsonConvert.DeserializeObject<Dictionary<int, int>>(reader.Get<string>("killData"));
-            reader.Dispose();
-            return returnDict;
-        }
         public void AddKill(int mobID)
         {
-            if (Vault.config.LogKillCounts)
-            {
-                var killDict = GetKillCounts();
-                if (killDict.ContainsKey(mobID))
-                    killDict[mobID] += 1;
-                else
-                    killDict.Add(mobID, 1);
-                main.Database.Query("UPDATE vault_players SET killData = @0 WHERE username = @1 AND worldID = @2", Newtonsoft.Json.JsonConvert.SerializeObject(killDict), TSPlayer.Name, Main.worldID);
-            }
+            if (KillData.ContainsKey(mobID))
+                KillData[mobID] += 1;
+            else
+                KillData.Add(mobID, 1);
         }
         public PlayerData(Vault instance, TSPlayer player)
         {
             main = instance;
             TSPlayer = player;
             UpdatePlayerData();
-            if (Vault.config.GiveTimedPay)
-                StartUpdating();
+            StartUpdating();
         }
         public void UpdatePlayerData()
         {
@@ -76,11 +66,14 @@ namespace Vault
             if (result.Read())
             {
                 this.money = result.Get<int>("money");
+                this.TotalOnline = result.Get<int>("totalOnline");
+                this.tempMin = result.Get<int>("tempMin");
+                this.KillData = JsonConvert.DeserializeObject<Dictionary<int, int>>(result.Get<string>("killData"));
             }
             else
             {
                 this.money = Vault.config.InitialMoney;
-                main.Database.Query("INSERT INTO vault_players(username, money, worldID, killData) VALUES(@0,@1,@2,@3)", TSPlayer.Name, this.money, Main.worldID, Newtonsoft.Json.JsonConvert.SerializeObject(new Dictionary<int,int>()));
+                main.Database.Query("INSERT INTO vault_players(username, money, worldID, killData, tempMin, totalOnline, lastSeen) VALUES(@0,@1,@2,@3,0,0,@4)", TSPlayer.Name, this.money, Main.worldID, JsonConvert.SerializeObject(new Dictionary<int,int>()), JsonConvert.SerializeObject(DateTime.UtcNow));
             }
             result.Dispose();
         }
@@ -93,7 +86,7 @@ namespace Vault
             {
                 if (this.UpdateThread == null || !this.UpdateThread.IsAlive)
                 {
-                    var updater = new Updater(main, TSPlayer.Index);
+                    var updater = new Updater(main, this);
                     this.UpdateThread = new Thread(updater.PayTimer);
                     this.UpdateThread.Start();
                 }
@@ -115,12 +108,12 @@ namespace Vault
         {
             int who;
             Vault main;
-            byte TimerCount;
-            public Updater(Vault instance, int who)
+            int TimerCount;
+            public Updater(Vault instance, PlayerData pd)
             {
                 this.main = instance;
-                this.who = who;
-                this.TimerCount = 0;
+                this.who = pd.TSPlayer.Index;
+                this.TimerCount = (pd.tempMin > 0) ? (pd.tempMin - 1) : 0;
             }
             public void PayTimer()
             {
@@ -131,14 +124,16 @@ namespace Vault
                     {
                         try
                         {
-                            if (player.IdleCount < Vault.config.MaxIdleTime)
+                            if (Vault.config.MaxIdleTime == 0 || player.IdleCount < Vault.config.MaxIdleTime)
                             {
                                 player.IdleCount++;
-                                if (this.TimerCount == Vault.config.PayEveryMinutes)
+                                player.TotalOnline++;
+                                if (Vault.config.GiveTimedPay && this.TimerCount == Vault.config.PayEveryMinutes)
                                     player.ChangeMoney(Vault.config.Payamount, Vault.config.AnnounceTimedPay);
                                 this.TimerCount++;
                                 if (this.TimerCount > Vault.config.PayEveryMinutes)
                                     this.TimerCount = 1;
+                                main.Database.Query("UPDATE vault_players SET tempMin = @0, totalOnline = @1, lastSeen = @2, killData = @5 WHERE username = @3 AND worldID = @4", this.TimerCount, player.TotalOnline, JsonConvert.SerializeObject(DateTime.UtcNow), player.TSPlayer.Name, Main.worldID, JsonConvert.SerializeObject(player.KillData));
                             }
                         }
                         catch (Exception ex) { Log.ConsoleError(ex.ToString()); }
