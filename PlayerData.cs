@@ -31,12 +31,12 @@ namespace Vault
                 money = value;
             }
         }
-        public bool ChangeMoney(int amount, bool announce = false)
+        public bool ChangeMoney(int amount, MoneyEventFlags flags, bool announce = false)
         {
-            HandledEventArgs args = new HandledEventArgs();
+            MoneyEventArgs args = new MoneyEventArgs() {Amount = amount, CurrentMoney = this.money, PlayerIndex = this.TSPlayer.Index, PlayerName = this.TSPlayer.Name, EventFlags = flags};
             if (this.money >= amount * -1)
             {                
-                if (!Vault.InvokeEvent(this.TSPlayer, amount, this.money + amount, args))
+                if (!Vault.InvokeEvent(args))
                 {
                     this.Money += amount;
                     if (announce)
@@ -129,7 +129,7 @@ namespace Vault
                                 player.IdleCount++;
                                 player.TotalOnline++;
                                 if (Vault.config.GiveTimedPay && this.TimerCount == Vault.config.PayEveryMinutes)
-                                    player.ChangeMoney(Vault.config.Payamount, Vault.config.AnnounceTimedPay);
+                                    player.ChangeMoney(Vault.config.Payamount, MoneyEventFlags.TimedPay, Vault.config.AnnounceTimedPay);
                                 this.TimerCount++;
                                 if (this.TimerCount > Vault.config.PayEveryMinutes)
                                     this.TimerCount = 1;

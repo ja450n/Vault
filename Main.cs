@@ -76,7 +76,7 @@ namespace Vault
         }
         public override Version Version
         {
-            get { return new Version("0.15"); }
+            get { return new Version("0.16"); }
         }
         public Vault(Main game) : base(game)
         {
@@ -92,7 +92,6 @@ namespace Vault
                 GameHooks.Initialize -= OnInitialize;
                 ServerHooks.Leave -= OnLeave;
                 ServerHooks.Join -= OnJoin;
-
                 Database.Dispose();
             }
         }
@@ -179,7 +178,7 @@ namespace Vault
                         args.Player.SendMessage(String.Format("Player {0} not found", args.Parameters[0]), Color.DarkOrange);
                         return;
                     }
-                    if (player.ChangeMoney(-amount) && targetPlayer.ChangeMoney(amount))
+                    if (player.ChangeMoney(-amount, MoneyEventFlags.PayCommand) && targetPlayer.ChangeMoney(amount, MoneyEventFlags.PayCommand))
                     {
                         targetPlayer.TSPlayer.SendMessage(String.Format("You've received {0} from {1}", MoneyToString(amount), args.Player.Name), Color.DarkGreen);
                         args.Player.SendMessage("Transfer successful", Color.DarkGreen);
@@ -288,7 +287,7 @@ namespace Vault
                                         foreach (KeyValuePair<int, int> reward in rewardDict)
                                         {
                                             if (PlayerList[reward.Key] != null)
-                                                PlayerList[reward.Key].ChangeMoney(reward.Value, config.AnnounceBossGain);
+                                                PlayerList[reward.Key].ChangeMoney(reward.Value, MoneyEventFlags.Kill, config.AnnounceBossGain);
                                         }
                                         BossList.RemoveAt(i);
                                     }
@@ -332,7 +331,7 @@ namespace Vault
                                     int minVal = (int)((npc.value - (npc.value * 0.1)) * Mod);
                                     int maxVal = (int)((npc.value + (npc.value * 0.1)) * Mod);
                                     int rewardAmt = RandomNumber(minVal, maxVal);
-                                    player.ChangeMoney(rewardAmt, config.AnnounceKillGain);
+                                    player.ChangeMoney(rewardAmt, MoneyEventFlags.Kill, config.AnnounceKillGain);
                                 }
                                 player.AddKill(npc.netID);
                             }
@@ -352,11 +351,11 @@ namespace Vault
                         else
                             penaltyAmmount = (int)(deadPlayer.Money * (config.DeathPenaltyPercent / 100f));
                      //   Console.WriteLine("penalty ammount: {0}", penaltyAmmount);
-                        if (!deadPlayer.TSPlayer.Group.HasPermission("vault.bypass.death") && deadPlayer.ChangeMoney(-penaltyAmmount, true) && e.number4 == 1 && config.PvPWinnerTakesLoosersPenalty && deadPlayer.LastPVPid != -1)
+                        if (!deadPlayer.TSPlayer.Group.HasPermission("vault.bypass.death") && deadPlayer.ChangeMoney(-penaltyAmmount, MoneyEventFlags.PvP,true) && e.number4 == 1 && config.PvPWinnerTakesLoosersPenalty && deadPlayer.LastPVPid != -1)
                         {
                             var killer = PlayerList[deadPlayer.LastPVPid];
                             if (killer != null)
-                                killer.ChangeMoney(penaltyAmmount, true);
+                                killer.ChangeMoney(penaltyAmmount,MoneyEventFlags.PvP, true);
                         }
                     }
                 }
@@ -379,11 +378,12 @@ namespace Vault
         //-------------------- Static ----------------------------------------------------
         private static Vault CurrentInstance = null;
         public static event MoneyEvent OnMoneyEvent;
-        public delegate void MoneyEvent(TSPlayer sender, int amount, int newTotal, HandledEventArgs args);
-        internal static bool InvokeEvent(TSPlayer player, int amt, int money, HandledEventArgs args)
+        public delegate void MoneyEvent(MoneyEventArgs args);
+
+        internal static bool InvokeEvent(MoneyEventArgs args)
         {
             if (OnMoneyEvent != null)
-                OnMoneyEvent(player, amt, money, args);
+                OnMoneyEvent(args);
             if (args.Handled)
                 return true;
             return false;
@@ -399,32 +399,48 @@ namespace Vault
             catch (Exception ex) { Log.ConsoleError(ex.ToString()); }
             return -1;
         }
-        public static bool SetBalance(string Name, int amount, bool announce = true)
+        public static bool SetBalance(string Name, int amount, bool announce = true, MoneyEventFlags flags = (MoneyEventFlags)4)
         {
             try
             {
                 var player = CurrentInstance.GetPlayerByName(Name);
                 if (player != null)
                 {
-                    player.Money = amount;
-                    if (announce)
+                    int modAmount = amount - player.Money;
+                    if (!player.ChangeMoney(modAmount, flags))
+                        return false;
+                    else if (announce)
                         player.TSPlayer.SendMessage(String.Format("Your balance has been set to {0}", MoneyToString(amount)), Color.DarkOrange);
+                    return true;
                 }
                 else
-                    CurrentInstance.Database.Query("UPDATE vault_players SET money = @0 WHERE username = @1 AND worldID = @2", amount, Name, Main.worldID);
-                return true;
+                {
+                    var Reader = CurrentInstance.Database.QueryReader("SELECT money FROM vault_players WHERE username = @0 AND worldID = @1", Name, Main.worldID);
+                    if (Reader.Read())
+                    {
+                        MoneyEventArgs args = new MoneyEventArgs() { Amount = amount - Reader.Get<int>("money"), CurrentMoney = Reader.Get<int>("money"), PlayerName = Name, PlayerIndex = -1, EventFlags = flags };
+                        if (!Vault.InvokeEvent(args))
+                        {
+                            Reader.Dispose();
+                            CurrentInstance.Database.Query("UPDATE vault_players SET money = @0 WHERE username = @1 AND worldID = @2", amount, Name, Main.worldID);
+                            return true;
+                        }
+                    }
+                    else
+                        Reader.Dispose();
+                }
             }
             catch (Exception ex) { Log.ConsoleError(ex.ToString()); }
             return false;
         }
-        public static bool ModifyBalance(string Name, int amount, bool announce = true)
+        public static bool ModifyBalance(string Name, int amount, bool announce = true, MoneyEventFlags flags = (MoneyEventFlags)4)
         {
             try
             {
                 var player = CurrentInstance.GetPlayerByName(Name);
                 if (player != null)
                 {
-                    if (player.ChangeMoney(amount, announce))
+                    if (player.ChangeMoney(amount, flags, announce))
                         return true;
                 }
                 else
@@ -432,10 +448,14 @@ namespace Vault
                     var Reader = CurrentInstance.Database.QueryReader("SELECT money FROM vault_players WHERE username = @0 AND worldID = @1", Name, Main.worldID);
                     if (Reader.Read() && Reader.Get<int>("money") >= amount * -1)
                     {
-                        int Newamount = Reader.Get<int>("money") + amount;
-                        Reader.Dispose();
-                        CurrentInstance.Database.Query("UPDATE vault_players SET money = @0 WHERE username = @1 AND worldID = @2", Newamount, Name, Main.worldID);
-                        return true;
+                        MoneyEventArgs args = new MoneyEventArgs() { Amount = amount, CurrentMoney = Reader.Get<int>("money"), PlayerName = Name, PlayerIndex = -1, EventFlags = flags };                       
+                        if (!Vault.InvokeEvent(args))
+                        {
+                            int Newamount = Reader.Get<int>("money") + amount;
+                            Reader.Dispose();
+                            CurrentInstance.Database.Query("UPDATE vault_players SET money = @0 WHERE username = @1 AND worldID = @2", Newamount, Name, Main.worldID);
+                            return true;
+                        }
                     }
                     else
                         Reader.Dispose();
@@ -605,5 +625,25 @@ namespace Vault
                     return PlayerList[i];
             return null;
         }
+    }
+    [Flags]
+    public enum MoneyEventFlags
+    {
+        Kill = 0,
+        Death = 1,
+        PvP = 2,
+        Plugin = 4,
+        PayCommand = 8,
+        TimedPay = 16,
+        Shop = 32,
+        Reward = 64
+    }
+    public class MoneyEventArgs : HandledEventArgs
+    {
+        public MoneyEventFlags EventFlags;
+        public int Amount;
+        public int CurrentMoney;
+        public String PlayerName;
+        public int PlayerIndex;
     }
 }
