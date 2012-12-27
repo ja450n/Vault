@@ -351,12 +351,17 @@ namespace Vault
                         else
                             penaltyAmmount = (int)(deadPlayer.Money * (config.DeathPenaltyPercent / 100f));
                      //   Console.WriteLine("penalty ammount: {0}", penaltyAmmount);
-                        if (!deadPlayer.TSPlayer.Group.HasPermission("vault.bypass.death") && deadPlayer.ChangeMoney(-penaltyAmmount, MoneyEventFlags.PvP,true) && e.number4 == 1 && config.PvPWinnerTakesLoosersPenalty && deadPlayer.LastPVPid != -1)
+                        if (e.number4 == 1)
                         {
-                            var killer = PlayerList[deadPlayer.LastPVPid];
-                            if (killer != null)
-                                killer.ChangeMoney(penaltyAmmount,MoneyEventFlags.PvP, true);
+                            if (!deadPlayer.TSPlayer.Group.HasPermission("vault.bypass.death") && deadPlayer.ChangeMoney(-penaltyAmmount, MoneyEventFlags.PvP, true) && config.PvPWinnerTakesLoosersPenalty && deadPlayer.LastPVPid != -1)
+                            {
+                                var killer = PlayerList[deadPlayer.LastPVPid];
+                                if (killer != null)
+                                    killer.ChangeMoney(penaltyAmmount, MoneyEventFlags.PvP, true);
+                            }
                         }
+                        else if (!deadPlayer.TSPlayer.Group.HasPermission("vault.bypass.death"))
+                            deadPlayer.ChangeMoney(-penaltyAmmount, MoneyEventFlags.Death,true);
                     }
                 }
                 else if (e.MsgID == PacketTypes.PlayerDamage)
