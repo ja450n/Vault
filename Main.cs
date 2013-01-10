@@ -242,8 +242,6 @@ namespace Vault
         }
         public void OnGetData(GetDataEventArgs e)
         {
-            if (e.Handled)
-                return;
             try
             {
                 if (e.MsgID == PacketTypes.PlayerUpdate)

@@ -124,7 +124,7 @@ namespace Vault
                     {
                         try
                         {
-                            if (Vault.config.MaxIdleTime == 0 || player.IdleCount < Vault.config.MaxIdleTime)
+                            if (Vault.config.MaxIdleTime == 0 || player.IdleCount <= Vault.config.MaxIdleTime)
                             {
                                 player.IdleCount++;
                                 player.TotalOnline++;
@@ -133,8 +133,8 @@ namespace Vault
                                 this.TimerCount++;
                                 if (this.TimerCount > Vault.config.PayEveryMinutes)
                                     this.TimerCount = 1;
-                                main.Database.Query("UPDATE vault_players SET tempMin = @0, totalOnline = @1, lastSeen = @2, killData = @5 WHERE username = @3 AND worldID = @4", this.TimerCount, player.TotalOnline, JsonConvert.SerializeObject(DateTime.UtcNow), player.TSPlayer.Name, Main.worldID, JsonConvert.SerializeObject(player.KillData));
                             }
+                            main.Database.Query("UPDATE vault_players SET tempMin = @0, totalOnline = @1, lastSeen = @2, killData = @5 WHERE username = @3 AND worldID = @4", this.TimerCount, player.TotalOnline, JsonConvert.SerializeObject(DateTime.UtcNow), player.TSPlayer.Name, Main.worldID, JsonConvert.SerializeObject(player.KillData));
                         }
                         catch (Exception ex) { Log.ConsoleError(ex.ToString()); }
                         Thread.Sleep(60000);
