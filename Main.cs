@@ -422,9 +422,9 @@ namespace Vault
                     if (Reader.Read())
                     {
                         MoneyEventArgs args = new MoneyEventArgs() { Amount = amount - Reader.Get<int>("money"), CurrentMoney = Reader.Get<int>("money"), PlayerName = Name, PlayerIndex = -1, EventFlags = flags };
+                        Reader.Dispose();
                         if (!Vault.InvokeEvent(args))
                         {
-                            Reader.Dispose();
                             CurrentInstance.Database.Query("UPDATE vault_players SET money = @0 WHERE username = @1 AND worldID = @2", amount, Name, Main.worldID);
                             return true;
                         }
@@ -451,11 +451,11 @@ namespace Vault
                     var Reader = CurrentInstance.Database.QueryReader("SELECT money FROM vault_players WHERE username = @0 AND worldID = @1", Name, Main.worldID);
                     if (Reader.Read() && Reader.Get<int>("money") >= amount * -1)
                     {
-                        MoneyEventArgs args = new MoneyEventArgs() { Amount = amount, CurrentMoney = Reader.Get<int>("money"), PlayerName = Name, PlayerIndex = -1, EventFlags = flags };                       
+                        MoneyEventArgs args = new MoneyEventArgs() { Amount = amount, CurrentMoney = Reader.Get<int>("money"), PlayerName = Name, PlayerIndex = -1, EventFlags = flags };
+                        int Newamount = Reader.Get<int>("money") + amount;
+                        Reader.Dispose();
                         if (!Vault.InvokeEvent(args))
                         {
-                            int Newamount = Reader.Get<int>("money") + amount;
-                            Reader.Dispose();
                             CurrentInstance.Database.Query("UPDATE vault_players SET money = @0 WHERE username = @1 AND worldID = @2", Newamount, Name, Main.worldID);
                             return true;
                         }
