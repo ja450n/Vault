@@ -1,0 +1,5 @@
+C:\Users\jowens\Documents\GitHub\Vault\Vault\bin\Release\Vault.dll
+C:\Users\jowens\Documents\GitHub\Vault\Vault\bin\Release\Vault.pdb
+C:\Users\jowens\Documents\GitHub\Vault\Vault\obj\Release\Vault.csprojResolveAssemblyReference.cache
+C:\Users\jowens\Documents\GitHub\Vault\Vault\obj\Release\Vault.dll
+C:\Users\jowens\Documents\GitHub\Vault\Vault\obj\Release\Vault.pdb

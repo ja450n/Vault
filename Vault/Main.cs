@@ -77,7 +77,7 @@ namespace Vault
         }
         public override Version Version
         {
-            get { return new Version("0.17"); }
+            get { return new Version("0.18"); }
         }
         public Vault(Main game) : base(game)
         {
@@ -96,7 +96,7 @@ namespace Vault
 
                 ServerApi.Hooks.NetGetData.Deregister(this, OnGetData);
                 ServerApi.Hooks.NetSendData.Deregister(this, OnSendData);
-                ServerApi.Hooks.GameInitialize.Deregister(this, (args) => { OnInitialize(); });
+                ServerApi.Hooks.GameInitialize.Deregister(this, OnInitialize);
                 ServerApi.Hooks.ServerLeave.Deregister(this, OnLeave);
                 ServerApi.Hooks.ServerJoin.Deregister(this, OnJoin);
                 
@@ -113,13 +113,13 @@ namespace Vault
 
             ServerApi.Hooks.NetGetData.Register(this, OnGetData);
             ServerApi.Hooks.NetSendData.Register(this, OnSendData);
-            ServerApi.Hooks.GameInitialize.Register(this, (args) => { OnInitialize(); });
+            ServerApi.Hooks.GameInitialize.Register(this, OnInitialize);
             ServerApi.Hooks.ServerLeave.Register(this, OnLeave);
             ServerApi.Hooks.ServerJoin.Register(this, OnJoin);
 
 
         }
-        void OnInitialize()
+        void OnInitialize(EventArgs e)
         {
             config = new Config();
             if (!Directory.Exists(SavePath))
