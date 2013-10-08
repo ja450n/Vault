@@ -7,10 +7,11 @@ using System.Data;
 using System.IO;
 
 using Terraria;
+using TerrariaApi.Server;
 using TShockAPI;
 using TShockAPI.DB;
+using TShockAPI.Hooks;
 
-using Hooks;
 using Mono.Data.Sqlite;
 using MySql.Data.MySqlClient;
 using Newtonsoft.Json;
@@ -52,7 +53,7 @@ namespace Vault
         }
 
     }
-    [APIVersion(1, 12)]
+    [ApiVersion(1, 14)]
     public class Vault : TerrariaPlugin
     {
         public IDbConnection Database;
@@ -68,7 +69,7 @@ namespace Vault
         }
         public override string Author
         {
-            get { return "by InanZen"; }
+            get { return "ja450n - original by InanZen"; }
         }
         public override string Description
         {
@@ -76,7 +77,7 @@ namespace Vault
         }
         public override Version Version
         {
-            get { return new Version("0.16"); }
+            get { return new Version("0.17"); }
         }
         public Vault(Main game) : base(game)
         {
@@ -87,21 +88,36 @@ namespace Vault
         {
             if (disposing)
             {
-                NetHooks.GetData -= OnGetData;
-                NetHooks.SendData -= OnSendData;
-                GameHooks.Initialize -= OnInitialize;
-                ServerHooks.Leave -= OnLeave;
-                ServerHooks.Join -= OnJoin;
+                // NetHooks.GetData -= OnGetData;
+                // NetHooks.SendData -= OnSendData;
+                // GameHooks.Initialize -= OnInitialize;
+                // ServerHooks.Leave -= OnLeave;
+                // ServerHooks.Join -= OnJoin;
+
+                ServerApi.Hooks.NetGetData.Deregister(this, OnGetData);
+                ServerApi.Hooks.NetSendData.Deregister(this, OnSendData);
+                ServerApi.Hooks.GameInitialize.Deregister(this, (args) => { OnInitialize(); });
+                ServerApi.Hooks.ServerLeave.Deregister(this, OnLeave);
+                ServerApi.Hooks.ServerJoin.Deregister(this, OnJoin);
+                
                 Database.Dispose();
             }
         }
         public override void Initialize()
-        {
-            NetHooks.GetData += OnGetData;
-            NetHooks.SendData += OnSendData;
-            GameHooks.Initialize += OnInitialize;            
-            ServerHooks.Leave += OnLeave;
-            ServerHooks.Join += OnJoin;
+        {   
+            // NetHooks.GetData += OnGetData;
+            // NetHooks.SendData += OnSendData;
+            // GameHooks.Initialize += OnInitialize;            
+            // ServerHooks.Leave += OnLeave;
+            // ServerHooks.Join += OnJoin;
+
+            ServerApi.Hooks.NetGetData.Register(this, OnGetData);
+            ServerApi.Hooks.NetSendData.Register(this, OnSendData);
+            ServerApi.Hooks.GameInitialize.Register(this, (args) => { OnInitialize(); });
+            ServerApi.Hooks.ServerLeave.Register(this, OnLeave);
+            ServerApi.Hooks.ServerJoin.Register(this, OnJoin);
+
+
         }
         void OnInitialize()
         {
@@ -221,23 +237,23 @@ namespace Vault
             }
         }
 
-        public void OnJoin(int who, HandledEventArgs args)
+        public void OnJoin(JoinEventArgs e)
         {
-            PlayerList[who] = new PlayerData(this, TShock.Players[who]);
+            PlayerList[e.Who] = new PlayerData(this, TShock.Players[e.Who]);
         }
-        public void OnLeave(int who)
+        public void OnLeave(LeaveEventArgs e)
         {
             try
             {
-                if (PlayerList[who] != null)
-                    PlayerList[who].StopUpdating();
-                PlayerList[who] = null;
+                if (PlayerList[e.Who] != null)
+                    PlayerList[e.Who].StopUpdating();
+                PlayerList[e.Who] = null;
             }
             catch (Exception ex)
             {
                 Log.ConsoleError(ex.ToString());
-                if (who >= 0)
-                    PlayerList[who] = null;
+                if (e.Who >= 0)
+                    PlayerList[e.Who] = null;
             }
         }
         public void OnGetData(GetDataEventArgs e)
@@ -264,7 +280,7 @@ namespace Vault
                 return;
             try
             {
-                if (e.MsgID == PacketTypes.NpcStrike)
+                if (e.MsgId == PacketTypes.NpcStrike)
                 {
                     NPC npc = Main.npc[e.number];
                     // Console.WriteLine("(SendData) NpcStrike -> 1:{0} 2:{4} 3:{5} 4:{6} 5:{1} remote:{2} ignore:{3}", e.number, e.number5, e.remoteClient, e.ignoreClient, e.number2, e.number3, e.number4);
@@ -336,7 +352,7 @@ namespace Vault
                         }
                     }
                 }
-                else if (e.MsgID == PacketTypes.PlayerKillMe)
+                else if (e.MsgId == PacketTypes.PlayerKillMe)
                 {
                     //Console.WriteLine("(SendData) PlayerKillMe -> 1:{0} 2:{4} 3:{5} 4:{6} 5:{1} remote:{2} ignore:{3}", e.number, e.number5, e.remoteClient, e.ignoreClient, e.number2, e.number3, e.number4);
                     // 1-playerID, 2-direction, 3-dmg, 4-PVP
@@ -362,7 +378,7 @@ namespace Vault
                             deadPlayer.ChangeMoney(-penaltyAmmount, MoneyEventFlags.Death,true);
                     }
                 }
-                else if (e.MsgID == PacketTypes.PlayerDamage)
+                else if (e.MsgId == PacketTypes.PlayerDamage)
                 {
                     // Console.WriteLine("(SendData) PlayerDamage -> 1:{0} 2:{4} 3:{5} 4:{6} 5:{1} remote:{2} ignore:{3}", e.number, e.number5, e.remoteClient, e.ignoreClient, e.number2, e.number3, e.number4);
                     // 1: pID, ignore: Who, 2: dir, 3:dmg, 4:pvp;
